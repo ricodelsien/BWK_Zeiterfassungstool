@@ -82,17 +82,15 @@
 
         <section class="card">
           <h2>Import/Export</h2>
-          <div class="row">
+          <div class="import-export-actions">
             <button class="btn ghost" id="exportJsonBtn">JSON export</button>
             <button class="btn ghost" id="exportCsvBtn">CSV export</button>
+            <label class="file">
+              <input id="importFile" type="file" accept=".json,application/json" />
+              <span class="btn ghost">JSON import</span>
+            </label>
+            <button class="btn ghost danger" id="clearMonthBtn" title="Aktuellen Monat leeren">Monat leeren</button>
           </div>
-		<div>
-		<br>
-		</div>
-          <label class="file">
-            <input id="importFile" type="file" accept=".json" />
-            <span class="btn">JSON import</span>
-          </label>
         </section>
       </aside>
 

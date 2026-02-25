@@ -109,7 +109,7 @@
     }
     if(o.breakMin == null) o.breakMin = 30;
     if(o.note == null) o.note = '';
-    if(o.open == null) o.open = false;
+    if(typeof o.open !== 'boolean') o.open = false; // default collapsed, but preserve when user opened a row
     return o;
   }
 
@@ -207,7 +207,10 @@
             <div class="d">${key.slice(8,10)}.${pad2(M)}.${String(Y).slice(2)}</div>
             <div class="w">${weekdayNames[wd]}</div>
           </div>
-          <div class="badge ${entry.workday ? 'work' : ''}">${entry.workday ? '✓ Arbeitstag' : '– frei'}</div>
+          <label class="day-workday-tog" title="Arbeitstag an/aus – zum Eintragen der Stunden ankreuzen">
+            <input type="checkbox" data-act="workday" ${entry.workday ? 'checked' : ''} />
+            <span>Arbeitstag</span>
+          </label>
         </div>
         <div class="day-right">
           <div class="day-hours">${formatMin(min)}</div>
@@ -219,11 +222,6 @@
       body.className = 'day-body';
       body.innerHTML = `
         <div class="day-grid">
-          <label class="tog span3" title="Arbeitstag an/aus">
-            <input type="checkbox" data-act="workday" ${entry.workday ? 'checked' : ''} />
-            <span>Arbeitstag</span>
-          </label>
-
           <label class="field">
             <span>Start</span>
             <input type="time" data-act="start" value="${entry.start || ''}" />
@@ -251,10 +249,47 @@
         </div>
       `;
 
-      head.addEventListener('click', () => {
+      function syncOpenState(){
+        entry.open = !!entry.workday;
+        dayEl.classList.toggle('open', entry.open);
+        const chev = head.querySelector('.chev');
+        if (chev) chev.textContent = entry.open ? '▾' : '▸';
+      }
+
+      // Click on header (not on checkbox) toggles expand/collapse
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('label.day-workday-tog') || e.target.getAttribute('data-act') === 'workday') {
+          // Workday checkbox/label clicked: after browser updates checkbox, expand/collapse to show hours
+          setTimeout(() => {
+            const cb = head.querySelector('input[data-act="workday"]');
+            if (cb) {
+              entry.workday = !!cb.checked;
+              entry.open = !!cb.checked;
+              data.days[key] = entry;
+              scheduleSave();
+              updateSummaryOnly();
+              head.querySelector('.day-hours').textContent = formatMin(computeDayMinutes(entry));
+              syncOpenState();
+            }
+          }, 0);
+          return;
+        }
         entry.open = !entry.open;
         scheduleSave();
         render();
+      });
+
+      // Arbeitstag checkbox: when checked expand to enter hours, when unchecked collapse
+      head.addEventListener('change', (e) => {
+        const cb = e.target;
+        if (cb.getAttribute('data-act') !== 'workday' || !(cb instanceof HTMLInputElement)) return;
+        entry.workday = !!cb.checked;
+        entry.open = !!cb.checked;
+        data.days[key] = entry;
+        scheduleSave();
+        updateSummaryOnly();
+        head.querySelector('.day-hours').textContent = formatMin(computeDayMinutes(entry));
+        syncOpenState();
       });
 
       body.addEventListener('input', (e) => {
@@ -380,6 +415,8 @@
   }
 
   function clearMonth(){
+    const ok = confirm('Aktuellen Monat wirklich leeren? Alle Einträge dieses Monats werden gelöscht.');
+    if(!ok) return;
     const keys = new Set(getMonthKeys(data.month));
     for(const k of Object.keys(data.days)){
       if(keys.has(k)) delete data.days[k];
@@ -476,8 +513,7 @@
       updateSummaryOnly();
     });
 
-    $('#applyWeekdaysBtn').addEventListener('click', applyWeekdays);
-    $('#clearMonthBtn').addEventListener('click', clearMonth);
+    $('#clearMonthBtn')?.addEventListener('click', clearMonth);
     $('#exportJsonBtn').addEventListener('click', exportJson);
     $('#exportCsvBtn').addEventListener('click', exportCsv);
 
