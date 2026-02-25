@@ -1,6 +1,8 @@
 /* BWK Zeiterfassung – script.js
    - local first (localStorage)
-   - month view with day cards
+   - Arbeitszeiterfassung nach Monaten
+   - Nico Siedler (ricodelsien)
+   - 2026-02-25
    - v0.1
 */
 
@@ -28,7 +30,7 @@
   let data = null;
   let saveTimer = null;
 
-  // ---------- Helpers ----------
+  // ---------- Helfer ----------
   function ymToday(){
     const d = new Date();
     return d.toISOString().slice(0,7);
@@ -290,10 +292,9 @@
         if (chev) chev.textContent = entry.open ? '▾' : '▸';
       }
 
-      // Click on header (not on checkbox) toggles expand/collapse
+      // Klick auf den Header öffnet / schließt den Block
       head.addEventListener('click', (e) => {
         if (e.target.closest('label.day-workday-tog') || e.target.getAttribute('data-act') === 'workday') {
-          // Workday checkbox/label clicked: after browser updates checkbox, expand/collapse to show hours
           setTimeout(() => {
             const cb = head.querySelector('input[data-act="workday"]');
             if (cb) {
