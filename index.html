@@ -13,8 +13,9 @@
         <div class="logo" aria-hidden="true">⏱</div>
         <div class="brandtext">
           <div class="name">BWK Zeiterfassung</div>
-          <div class="sub">331 · Siedler, Nico · BWK AVöD</div>
+          <div class="sub" id="profileSubline">Profil bearbeiten</div>
         </div>
+        <button class="btn ghost small profile-btn" id="profileBtn" title="Profil bearbeiten" aria-label="Profil bearbeiten">Profil</button>
       </div>
 
       <div class="top-actions">
@@ -22,8 +23,10 @@
           <span>Monat</span>
           <input id="monthPicker" type="month" />
         </label>
+        <button class="btn ghost small" id="expandAllBtn" title="Alle Tage aufklappen">Alle aufklappen</button>
+        <button class="btn ghost small" id="collapseAllBtn" title="Alle Tage zuklappen">Alle zuklappen</button>
 
-        <button class="btn ghost" id="themeBtn" title="Theme wechseln" aria-label="Theme wechseln">
+        <button class="btn ghost" id="themeBtn" title="Theme wählen" aria-label="Theme wählen">
           <span class="ico" aria-hidden="true">🌓</span>
           <span class="hide-sm">Theme</span>
         </button>
@@ -113,6 +116,44 @@
       <span>Tip: Auf Mobil kannst du die Tageskarten schnell auf-/zuklappen.</span>
     </footer>
   </div>
+
+  <dialog id="profileDialog" class="theme-dialog" aria-label="Profil bearbeiten">
+    <form method="dialog" class="theme-dialog-inner" id="profileForm">
+      <div class="theme-dialog-title">Profil</div>
+      <div class="theme-options" style="flex-direction: column; gap: 10px;">
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="profileName" placeholder="z. B. Nico Siedler" maxlength="120" />
+        </label>
+        <label class="field">
+          <span>Personalnummer</span>
+          <input type="text" id="profilePersonnelId" placeholder="z. B. 331" maxlength="30" />
+        </label>
+        <label class="field">
+          <span>Bereich / Abteilung</span>
+          <input type="text" id="profileDepartment" placeholder="z. B. BWK AVöD" maxlength="80" />
+        </label>
+      </div>
+      <div class="theme-dialog-actions">
+        <button type="submit" class="btn">Speichern</button>
+        <button type="button" class="btn ghost" id="profileDialogClose">Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="themeDialog" class="theme-dialog" aria-label="Theme wählen">
+    <div class="theme-dialog-inner">
+      <div class="theme-dialog-title">Theme</div>
+      <div class="theme-options">
+        <button type="button" class="theme-opt" data-theme="system">System</button>
+        <button type="button" class="theme-opt" data-theme="dark">Dark</button>
+        <button type="button" class="theme-opt" data-theme="light">Hell</button>
+      </div>
+      <div class="theme-dialog-actions">
+        <button type="button" class="btn ghost" id="themeDialogClose">Schließen</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="toast" class="toast">
     <div class="toast-inner">

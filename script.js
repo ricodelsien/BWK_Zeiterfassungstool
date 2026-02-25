@@ -18,6 +18,7 @@
   const stateDefaults = () => ({
     version: APP_VERSION,
     settings: { theme: 'system' }, // system | dark | light
+    profile: { name: '', personnelId: '', department: '' },
     month: ymToday(),
     requiredHours: 160,
     carryHours: 0,
@@ -75,12 +76,33 @@
     root.setAttribute('data-theme', t);
   }
 
-  function cycleTheme(){
-    const t = data.settings.theme;
-    data.settings.theme = (t === 'system') ? 'dark' : (t === 'dark' ? 'light' : 'system');
+  function setTheme(value){
+    if (value !== 'system' && value !== 'dark' && value !== 'light') return;
+    data.settings.theme = value;
     applyTheme();
     scheduleSave();
-    toast('Theme: ' + data.settings.theme);
+  }
+
+  function expandAll(){
+    const keys = getMonthKeys(data.month);
+    for (const key of keys) {
+      const entry = ensureDayDefaults(key);
+      entry.open = true;
+      data.days[key] = entry;
+    }
+    scheduleSave();
+    render();
+  }
+
+  function collapseAll(){
+    const keys = getMonthKeys(data.month);
+    for (const key of keys) {
+      const entry = ensureDayDefaults(key);
+      entry.open = false;
+      data.days[key] = entry;
+    }
+    scheduleSave();
+    render();
   }
 
   function getMonthMeta(ym){
@@ -165,11 +187,21 @@
     if(!obj || typeof obj !== 'object') return stateDefaults();
     if(!obj.version) obj.version = APP_VERSION;
     if(!obj.settings) obj.settings = { theme: 'system' };
+    if(!obj.profile || typeof obj.profile !== 'object') obj.profile = { name: '', personnelId: '', department: '' };
+    if(typeof obj.profile.name !== 'string') obj.profile.name = '';
+    if(typeof obj.profile.personnelId !== 'string') obj.profile.personnelId = '';
+    if(typeof obj.profile.department !== 'string') obj.profile.department = '';
     if(!obj.month) obj.month = ymToday();
     if(obj.requiredHours == null) obj.requiredHours = 160;
     if(obj.carryHours == null) obj.carryHours = 0;
     if(!obj.days) obj.days = {};
     return obj;
+  }
+
+  function profileSubline(){
+    const p = data.profile || {};
+    const parts = [p.personnelId, p.name, p.department].filter(Boolean);
+    return parts.length ? parts.join(' · ') : 'Profil bearbeiten';
   }
 
   // ---------- Rendering ----------
@@ -178,6 +210,8 @@
 
     $('#verOut').textContent = APP_VERSION;
     $('#monthPicker').value = data.month;
+    const subEl = $('#profileSubline');
+    if (subEl) subEl.textContent = profileSubline();
 
     const { Y, M } = getMonthMeta(data.month);
     $('#monthTitle').textContent = monthNames[M-1] + ' ' + Y;
@@ -331,7 +365,6 @@
           data.days[key] = entry;
           scheduleSave();
           render();
-          toast('Eintrag gelöscht');
         }
         if(act === 'collapse'){
           entry.open = false;
@@ -415,15 +448,12 @@
   }
 
   function clearMonth(){
-    const ok = confirm('Aktuellen Monat wirklich leeren? Alle Einträge dieses Monats werden gelöscht.');
-    if(!ok) return;
     const keys = new Set(getMonthKeys(data.month));
     for(const k of Object.keys(data.days)){
       if(keys.has(k)) delete data.days[k];
     }
     scheduleSave();
     render();
-    toast('Monat geleert');
   }
 
   function downloadBlob(blob, filename){
@@ -444,9 +474,14 @@
 
   function exportCsv(){
     const keys = getMonthKeys(data.month);
-    const rows = [
-      ['date','weekday','workday','start','end','breakMin','minutes','hoursDec','note'].join(',')
-    ];
+    const p = data.profile || {};
+    const rows = [];
+    if (p.name || p.personnelId || p.department) {
+      rows.push('# profile: name, personnelId, department');
+      const q = (s) => '"' + (s || '').replace(/"/g, '""') + '"';
+      rows.push(['#', q(p.name), q(p.personnelId), q(p.department)].join(','));
+    }
+    rows.push(['date','weekday','workday','start','end','breakMin','minutes','hoursDec','note'].join(','));
 
     for(const key of keys){
       const e = ensureDayDefaults(key);
@@ -484,14 +519,47 @@
     applyTheme();
     saveNow();
     render();
-    toast('Import ok');
+  }
+
+  function openProfileDialog(){
+    const p = data.profile || {};
+    $('#profileName').value = p.name || '';
+    $('#profilePersonnelId').value = p.personnelId || '';
+    $('#profileDepartment').value = p.department || '';
+    $('#profileDialog').showModal();
+  }
+
+  function saveProfile(){
+    if (!data.profile) data.profile = { name: '', personnelId: '', department: '' };
+    data.profile.name = ($('#profileName').value || '').trim();
+    data.profile.personnelId = ($('#profilePersonnelId').value || '').trim();
+    data.profile.department = ($('#profileDepartment').value || '').trim();
+    scheduleSave();
+    const subEl = $('#profileSubline');
+    if (subEl) subEl.textContent = profileSubline();
   }
 
   // ---------- Wire up ----------
   function init(){
     data = load();
 
-    $('#themeBtn').addEventListener('click', cycleTheme);
+    $('#profileBtn').addEventListener('click', openProfileDialog);
+    $('#profileDialogClose').addEventListener('click', () => $('#profileDialog').close());
+    $('#profileDialog').addEventListener('click', (e) => { if (e.target === $('#profileDialog')) $('#profileDialog').close(); });
+    $('#profileForm').addEventListener('submit', () => { saveProfile(); $('#profileDialog').close(); });
+
+    $('#themeBtn').addEventListener('click', () => $('#themeDialog').showModal());
+    $('#themeDialogClose').addEventListener('click', () => $('#themeDialog').close());
+    $('#themeDialog').addEventListener('click', (e) => { if (e.target === $('#themeDialog')) $('#themeDialog').close(); });
+    document.querySelectorAll('.theme-opt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.getAttribute('data-theme');
+        if (theme) { setTheme(theme); $('#themeDialog').close(); }
+      });
+    });
+
+    $('#expandAllBtn').addEventListener('click', expandAll);
+    $('#collapseAllBtn').addEventListener('click', collapseAll);
     $('#toastClose').addEventListener('click', closeToast);
     $('#toast').addEventListener('click', (e) => { if(e.target === $('#toast')) closeToast(); });
 
