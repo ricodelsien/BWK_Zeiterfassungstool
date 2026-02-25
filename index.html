@@ -2,205 +2,127 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>BWK – Zeiterfassung</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>BWK Zeiterfassung</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-btn" id="btnToggleSidebar" title="Menü">
-        <span class="icon">☰</span>
-      </button>
+  <div class="app">
+    <header class="topbar">
       <div class="brand">
-        <div class="brand-title">BWK-Zeiterfassung</div>
-        <div class="brand-sub">lokal • schnell • übersichtlich</div>
-      </div>
-    </div>
-
-    <div class="topbar-center">
-      <div class="pill">
-        <label for="projectSelect">Projekt:</label>
-        <select id="projectSelect"></select>
-        <button class="mini-btn" id="btnAddProject" title="Projekt hinzufügen">+</button>
-      </div>
-
-      <div class="pill">
-        <button class="mini-btn" id="btnPrev">◀</button>
-        <button class="mini-btn" id="btnToday">Heute</button>
-        <button class="mini-btn" id="btnNext">▶</button>
-        <select id="viewMode" class="select">
-          <option value="month">Monat</option>
-          <option value="week">Woche</option>
-          <option value="day">Tag</option>
-        </select>
-      </div>
-
-      <div class="pill search">
-        <span class="icon">🔎</span>
-        <input id="searchInput" type="text" placeholder="Suchen… (Notiz/Projekt)" />
-      </div>
-    </div>
-
-    <div class="topbar-right">
-      <button class="btn" id="btnExport" title="Export (JSON)">Export</button>
-      <label class="btn ghost" for="fileImport" title="Import (JSON)">Import</label>
-      <input id="fileImport" type="file" accept="application/json" hidden />
-      <button class="icon-btn" id="btnReset" title="Zurücksetzen (lokal)"><span class="icon">🗑️</span></button>
-    </div>
-  </header>
-
-  <main class="layout">
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Projekte</div>
-          <button class="icon-btn" id="btnAddProject2" title="Projekt hinzufügen"><span class="icon">＋</span></button>
-        </div>
-
-        <div id="projectList" class="list"></div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Schnell-Timer</div>
-        </div>
-
-        <div class="timer-card">
-          <div class="timer-row">
-            <div class="timer-label">Aktives Projekt</div>
-            <div class="timer-value" id="activeProjectLabel">—</div>
-          </div>
-
-          <div class="timer-big" id="timerDisplay">00:00:00</div>
-
-          <div class="timer-actions">
-            <button class="btn" id="btnStart">Start</button>
-            <button class="btn ghost" id="btnPause" disabled>Pause</button>
-            <button class="btn danger" id="btnStop" disabled>Stop</button>
-          </div>
-
-          <textarea id="timerNote" class="textarea" rows="2" placeholder="Notiz (optional)"></textarea>
-
-          <div class="hint">
-            Tipp: Start/Stop ist absichtlich hier links, damit du’s wie einen “Schalter” benutzt.
-          </div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Center -->
-    <section class="center">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title" id="centerTitle">Kalender</div>
-          <div class="panel-sub" id="centerSub">—</div>
-        </div>
-
-        <div id="calendar" class="calendar"></div>
-
-        <div class="panel-footer">
-          <div class="footer-left">
-            <div class="small-label">Ausgewählt:</div>
-            <div id="selectedDateLabel" class="small-value">—</div>
-          </div>
-          <div class="footer-right">
-            <button class="btn ghost" id="btnAddManual">+ Eintrag</button>
-          </div>
+        <div class="logo" aria-hidden="true">⏱</div>
+        <div class="brandtext">
+          <div class="name">BWK Zeiterfassung</div>
+          <div class="sub">331 · Siedler, Nico · BWK AVöD</div>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Tagesliste</div>
-          <div class="panel-sub" id="daySumLabel">0:00 h</div>
-        </div>
+      <div class="top-actions">
+        <label class="field compact">
+          <span>Monat</span>
+          <input id="monthPicker" type="month" />
+        </label>
 
-        <div id="dayEntries" class="entries"></div>
+        <button class="btn ghost" id="themeBtn" title="Theme wechseln" aria-label="Theme wechseln">
+          <span class="ico" aria-hidden="true">🌓</span>
+          <span class="hide-sm">Theme</span>
+        </button>
       </div>
-    </section>
+    </header>
 
-    <!-- Right -->
-    <aside class="right">
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Planungs-Übersicht</div>
-          <div class="panel-sub">Gefiltert: Suche + Projekt + Zeitraum</div>
-        </div>
+    <main class="grid">
+      <aside class="panel left">
+        <section class="card">
+          <h2>Monats-Soll</h2>
+          <div class="form">
+            <label class="field">
+              <span>Stunden (Monat)</span>
+              <input id="requiredHours" type="number" step="0.25" min="0" />
+            </label>
 
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-title">Heute</div>
-            <div class="stat-value" id="statToday">0:00</div>
-            <div class="stat-sub">Arbeitszeit</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-title">Woche</div>
-            <div class="stat-value" id="statWeek">0:00</div>
-            <div class="stat-sub">Summe</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-title">Monat</div>
-            <div class="stat-value" id="statMonth">0:00</div>
-            <div class="stat-sub">Summe</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-title">Letzte 14 Tage</div>
-            <div class="stat-value" id="stat14">0:00</div>
-            <div class="stat-sub">Summe</div>
-          </div>
-        </div>
-      </div>
+            <label class="field">
+              <span>Übertrag (h)</span>
+              <input id="carryHours" type="number" step="0.25" />
+            </label>
 
-      <div class="panel">
-        <div class="panel-header">
-          <div class="panel-title">Manueller Eintrag</div>
-          <div class="panel-sub">Für Korrekturen & Nachtragen</div>
-        </div>
-
-        <form id="manualForm" class="form">
-          <div class="form-row">
-            <label>Datum</label>
-            <input type="date" id="mDate" />
-          </div>
-          <div class="form-row two">
-            <div>
-              <label>Start</label>
-              <input type="time" id="mStart" />
-            </div>
-            <div>
-              <label>Ende</label>
-              <input type="time" id="mEnd" />
+            <div class="row">
             </div>
           </div>
-          <div class="form-row">
-            <label>Pause (Min.)</label>
-            <input type="number" id="mBreak" min="0" step="5" value="0" />
-          </div>
-          <div class="form-row">
-            <label>Notiz</label>
-            <input type="text" id="mNote" placeholder="z.B. Meeting, Doku, Tickets…" />
-          </div>
-          <button class="btn" type="submit">Speichern</button>
-        </form>
-      </div>
-    </aside>
-  </main>
+        </section>
 
-  <!-- Modal -->
-  <div class="modal-backdrop hidden" id="modalBackdrop">
-    <div class="modal">
-      <div class="modal-header">
-        <div class="modal-title" id="modalTitle">—</div>
-        <button class="icon-btn" id="btnCloseModal" title="Schließen">✕</button>
-      </div>
-      <div class="modal-body" id="modalBody"></div>
-      <div class="modal-footer" id="modalFooter"></div>
-    </div>
+        <section class="card">
+          <h2>Auswertung</h2>
+          <div class="stats">
+            <div class="stat">
+              <div class="k">Gearbeitet</div>
+              <div class="v" id="workedOut">0:00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Soll</div>
+              <div class="v" id="targetOut">0:00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Differenz</div>
+              <div class="v" id="diffOut">0:00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Rest bis Soll</div>
+              <div class="v" id="restOut">0:00</div>
+            </div>
+            <div class="stat">
+              <div class="k">Rest / Arbeitstag</div>
+              <div class="v" id="perDayOut">–</div>
+            </div>
+            <div class="stat">
+              <div class="k">Saldo inkl. Übertrag</div>
+              <div class="v" id="saldoOut">0:00</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Import/Export</h2>
+          <div class="row">
+            <button class="btn ghost" id="exportJsonBtn">JSON export</button>
+            <button class="btn ghost" id="exportCsvBtn">CSV export</button>
+          </div>
+		<div>
+		<br>
+		</div>
+          <label class="file">
+            <input id="importFile" type="file" accept=".json" />
+            <span class="btn">JSON import</span>
+          </label>
+        </section>
+      </aside>
+
+      <section class="panel right">
+        <div class="daylist-head">
+          <h1 id="monthTitle">Monat</h1>
+          <div class="legend">
+            <span class="pill">✓ Arbeitstag</span>
+            <span class="pill ghost">– frei</span>
+          </div>
+        </div>
+
+        <div class="daylist" id="dayList" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>v<span id="verOut"></span></span>
+      <span class="dot">•</span>
+      <span>Tip: Auf Mobil kannst du die Tageskarten schnell auf-/zuklappen.</span>
+    </footer>
   </div>
 
-  <script src="app.js"></script>
+  <dialog id="toast" class="toast">
+    <div class="toast-inner">
+      <div id="toastMsg">OK</div>
+      <button class="btn ghost" id="toastClose">Schließen</button>
+    </div>
+  </dialog>
+
+  <script src="script.js"></script>
 </body>
 </html>

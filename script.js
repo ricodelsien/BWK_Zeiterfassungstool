@@ -1,934 +1,495 @@
-/* BWK Zeiterfassung – v0.1
-   - LocalStorage
-   - Projekte
-   - Timer Start/Pause/Stop -> Eintrag
-   - Manuelle Einträge
-   - Kalender (Monat/Woche/Tag)
-   - Suche + Projektfilter
+/* BWK Zeiterfassung – script.js
+   - local first (localStorage)
+   - month view with day cards
+   - v0.1
 */
 
-const STORAGE_KEY = "bwk_time_v01";
+(() => {
+  'use strict';
 
-const state = {
-  viewMode: "month",
-  cursorDate: new Date(),
-  selectedDate: startOfDay(new Date()),
-  activeProjectId: null,
-  search: "",
-  timer: {
-    running: false,
-    paused: false,
-    startTs: null,
-    pauseTs: null,
-    pausedMs: 0,
-    projectId: null,
-    note: ""
-  },
-  data: {
-    projects: [],
-    entries: [] // {id, projectId, startTs, endTs, breakMin, note}
-  }
-};
+  const STORAGE_KEY = 'bwk_timesheet_v1';
+  const APP_VERSION = '0.1';
 
-// ---------- Utilities ----------
-function uid() { return Math.random().toString(16).slice(2) + Date.now().toString(16); }
+  const $ = (sel) => document.querySelector(sel);
 
-function startOfDay(d){
-  const x = new Date(d);
-  x.setHours(0,0,0,0);
-  return x;
-}
-function sameDay(a,b){
-  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-}
-function fmtDate(d){
-  const x = new Date(d);
-  return x.toLocaleDateString("de-DE", { weekday:"long", year:"numeric", month:"long", day:"2-digit" });
-}
-function fmtShort(d){
-  const x = new Date(d);
-  return x.toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit", year:"numeric" });
-}
-function fmtTime(ts){
-  const d = new Date(ts);
-  return d.toLocaleTimeString("de-DE", { hour:"2-digit", minute:"2-digit" });
-}
-function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
+  const weekdayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+  const monthNames = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
-function msToHhmmss(ms){
-  ms = Math.max(0, ms);
-  const s = Math.floor(ms/1000);
-  const hh = Math.floor(s/3600);
-  const mm = Math.floor((s%3600)/60);
-  const ss = s%60;
-  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
-}
-function msToHhmm(ms){
-  ms = Math.max(0, ms);
-  const totalMin = Math.round(ms/60000);
-  const hh = Math.floor(totalMin/60);
-  const mm = totalMin%60;
-  return `${hh}:${String(mm).padStart(2,"0")}`;
-}
-function minutesToHhmm(min){
-  const hh = Math.floor(min/60);
-  const mm = min%60;
-  return `${hh}:${String(mm).padStart(2,"0")}`;
-}
-
-function weekStart(d){
-  const x = startOfDay(d);
-  // ISO-ish: Monday start
-  const day = (x.getDay()+6)%7; // Mon=0
-  x.setDate(x.getDate()-day);
-  return x;
-}
-
-// ---------- Storage ----------
-function load(){
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if(!raw){
-    // defaults
-    state.data.projects = [
-      { id: uid(), name: "Allgemein", color: "accent" }
-    ];
-    state.activeProjectId = state.data.projects[0].id;
-    save();
-    return;
-  }
-  try{
-    const obj = JSON.parse(raw);
-    if(obj?.data){
-      state.data = obj.data;
-      state.activeProjectId = obj.activeProjectId ?? state.data.projects?.[0]?.id ?? null;
-      state.viewMode = obj.viewMode ?? "month";
-      state.cursorDate = obj.cursorDate ? new Date(obj.cursorDate) : new Date();
-      state.selectedDate = obj.selectedDate ? new Date(obj.selectedDate) : startOfDay(new Date());
-      // timer intentionally not persisted as "running" to avoid confusion after reload
-    }
-  }catch(e){
-    console.warn("Load failed", e);
-  }
-}
-function save(){
-  const obj = {
-    data: state.data,
-    activeProjectId: state.activeProjectId,
-    viewMode: state.viewMode,
-    cursorDate: state.cursorDate.toISOString(),
-    selectedDate: state.selectedDate.toISOString()
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
-}
-
-// ---------- DOM ----------
-const el = (id)=>document.getElementById(id);
-
-const dom = {
-  sidebar: el("sidebar"),
-  btnToggleSidebar: el("btnToggleSidebar"),
-
-  projectSelect: el("projectSelect"),
-  projectList: el("projectList"),
-  btnAddProject: el("btnAddProject"),
-  btnAddProject2: el("btnAddProject2"),
-
-  viewMode: el("viewMode"),
-  btnPrev: el("btnPrev"),
-  btnNext: el("btnNext"),
-  btnToday: el("btnToday"),
-
-  searchInput: el("searchInput"),
-
-  centerTitle: el("centerTitle"),
-  centerSub: el("centerSub"),
-  calendar: el("calendar"),
-  selectedDateLabel: el("selectedDateLabel"),
-
-  dayEntries: el("dayEntries"),
-  daySumLabel: el("daySumLabel"),
-
-  // Timer
-  activeProjectLabel: el("activeProjectLabel"),
-  timerDisplay: el("timerDisplay"),
-  timerNote: el("timerNote"),
-  btnStart: el("btnStart"),
-  btnPause: el("btnPause"),
-  btnStop: el("btnStop"),
-
-  // Manual
-  btnAddManual: el("btnAddManual"),
-  manualForm: el("manualForm"),
-  mDate: el("mDate"),
-  mStart: el("mStart"),
-  mEnd: el("mEnd"),
-  mBreak: el("mBreak"),
-  mNote: el("mNote"),
-
-  // Stats
-  statToday: el("statToday"),
-  statWeek: el("statWeek"),
-  statMonth: el("statMonth"),
-  stat14: el("stat14"),
-
-  // Export/Import/Reset
-  btnExport: el("btnExport"),
-  fileImport: el("fileImport"),
-  btnReset: el("btnReset"),
-
-  // Modal
-  modalBackdrop: el("modalBackdrop"),
-  modalTitle: el("modalTitle"),
-  modalBody: el("modalBody"),
-  modalFooter: el("modalFooter"),
-  btnCloseModal: el("btnCloseModal")
-};
-
-// ---------- Filters ----------
-function matchesFilters(entry){
-  if(state.activeProjectId && entry.projectId !== state.activeProjectId) return false;
-  if(state.search.trim()){
-    const s = state.search.trim().toLowerCase();
-    const proj = projectById(entry.projectId)?.name?.toLowerCase() ?? "";
-    const note = (entry.note ?? "").toLowerCase();
-    if(!proj.includes(s) && !note.includes(s)) return false;
-  }
-  return true;
-}
-
-function projectById(id){
-  return state.data.projects.find(p=>p.id===id) ?? null;
-}
-
-// ---------- Rendering ----------
-function renderAll(){
-  renderProjects();
-  renderTopProjectSelect();
-  renderCalendar();
-  renderDayEntries();
-  renderStats();
-  syncTimerUI();
-  save();
-}
-
-function renderProjects(){
-  dom.projectList.innerHTML = "";
-  for(const p of state.data.projects){
-    const div = document.createElement("div");
-    div.className = "item" + (p.id===state.activeProjectId ? " active" : "");
-    div.innerHTML = `
-      <div class="meta">
-        <div class="name">${escapeHtml(p.name)}</div>
-        <div class="sub">${countProjectHours(p.id)}</div>
-      </div>
-      <div class="tools">
-        <button class="mini-btn" title="Umbenennen">✎</button>
-        <button class="mini-btn" title="Löschen">🗑️</button>
-      </div>
-    `;
-    div.addEventListener("click", (ev)=>{
-      // ignore clicks on buttons -> handled below
-      if(ev.target.closest("button")) return;
-      state.activeProjectId = p.id;
-      renderAll();
-    });
-
-    const [btnRename, btnDel] = div.querySelectorAll("button");
-    btnRename.addEventListener("click", ()=>{
-      openProjectRename(p.id);
-    });
-    btnDel.addEventListener("click", ()=>{
-      openProjectDelete(p.id);
-    });
-
-    dom.projectList.appendChild(div);
-  }
-  dom.activeProjectLabel.textContent = projectById(state.activeProjectId)?.name ?? "—";
-}
-
-function renderTopProjectSelect(){
-  dom.projectSelect.innerHTML = "";
-  for(const p of state.data.projects){
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.name;
-    dom.projectSelect.appendChild(opt);
-  }
-  if(state.activeProjectId) dom.projectSelect.value = state.activeProjectId;
-}
-
-function renderCalendar(){
-  const mode = state.viewMode;
-  dom.calendar.className = "calendar " + mode;
-
-  const c = new Date(state.cursorDate);
-
-  if(mode==="month"){
-    const monthStart = new Date(c.getFullYear(), c.getMonth(), 1);
-    const gridStart = weekStart(monthStart);
-    const grid = [];
-    for(let i=0;i<42;i++){
-      const d = new Date(gridStart);
-      d.setDate(d.getDate()+i);
-      grid.push(d);
-    }
-
-    dom.centerTitle.textContent = "Kalender";
-    dom.centerSub.textContent = c.toLocaleDateString("de-DE", { month:"long", year:"numeric" });
-
-    dom.calendar.innerHTML = "";
-    const heads = ["Mo","Di","Mi","Do","Fr","Sa","So"];
-    for(const h of heads){
-      const head = document.createElement("div");
-      head.className = "cal-head";
-      head.textContent = h;
-      dom.calendar.appendChild(head);
-    }
-
-    for(const d of grid){
-      dom.calendar.appendChild(dayCell(d, d.getMonth()!==c.getMonth()));
-    }
-  }
-
-  if(mode==="week"){
-    const ws = weekStart(c);
-    const days = [];
-    for(let i=0;i<7;i++){
-      const d = new Date(ws); d.setDate(d.getDate()+i);
-      days.push(d);
-    }
-    dom.centerTitle.textContent = "Woche";
-    dom.centerSub.textContent = `${fmtShort(days[0])} – ${fmtShort(days[6])}`;
-
-    dom.calendar.innerHTML = "";
-    const heads = ["Mo","Di","Mi","Do","Fr","Sa","So"];
-    for(let i=0;i<7;i++){
-      const head = document.createElement("div");
-      head.className = "cal-head";
-      head.textContent = heads[i];
-      dom.calendar.appendChild(head);
-    }
-    for(const d of days){
-      dom.calendar.appendChild(dayCell(d, false));
-    }
-  }
-
-  if(mode==="day"){
-    dom.centerTitle.textContent = "Tag";
-    dom.centerSub.textContent = fmtDate(state.selectedDate);
-    dom.calendar.innerHTML = "";
-    dom.calendar.appendChild(dayCell(state.selectedDate, false, true));
-  }
-
-  dom.selectedDateLabel.textContent = fmtDate(state.selectedDate);
-}
-
-function dayCell(date, isOut, big=false){
-  const div = document.createElement("div");
-  div.className = "daycell" + (isOut ? " out" : "") + (sameDay(date, state.selectedDate) ? " selected" : "");
-  const sumMs = sumForDay(date);
-  const cnt = countEntriesForDay(date);
-  div.innerHTML = `
-    <div class="date">${date.getDate()}</div>
-    <div class="badge">${cnt}×</div>
-    <div class="sum">${msToHhmm(sumMs)} h</div>
-  `;
-  if(big){
-    div.style.minHeight = "120px";
-  }
-  div.addEventListener("click", ()=>{
-    state.selectedDate = startOfDay(date);
-    if(state.viewMode === "day"){
-      state.cursorDate = new Date(state.selectedDate);
-    }
-    renderAll();
+  const stateDefaults = () => ({
+    version: APP_VERSION,
+    settings: { theme: 'system' }, // system | dark | light
+    month: ymToday(),
+    requiredHours: 160,
+    carryHours: 0,
+    days: {} // 'YYYY-MM-DD': { workday, start, end, breakMin, note, open }
   });
-  return div;
-}
 
-function renderDayEntries(){
-  const d = state.selectedDate;
-  const entries = state.data.entries
-    .filter(e=> sameDay(new Date(e.startTs), d))
-    .filter(matchesFilters)
-    .sort((a,b)=>a.startTs-b.startTs);
+  let data = null;
+  let saveTimer = null;
 
-  dom.dayEntries.innerHTML = "";
-  if(entries.length===0){
-    const empty = document.createElement("div");
-    empty.className = "hint";
-    empty.textContent = "Keine Einträge für diesen Tag (mit aktuellem Filter).";
-    dom.dayEntries.appendChild(empty);
-  }else{
-    for(const e of entries){
-      const proj = projectById(e.projectId)?.name ?? "—";
-      const durMs = Math.max(0, e.endTs - e.startTs - (e.breakMin*60000));
-      const row = document.createElement("div");
-      row.className = "entry";
-      row.innerHTML = `
-        <div>
-          <div class="line1">
-            <div class="proj">${escapeHtml(proj)}</div>
-            <div class="time">${fmtTime(e.startTs)}–${fmtTime(e.endTs)} • Pause ${e.breakMin} min</div>
+  // ---------- Helpers ----------
+  function ymToday(){
+    const d = new Date();
+    return d.toISOString().slice(0,7);
+  }
+
+  function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+  function pad2(n){ return String(n).padStart(2,'0'); }
+
+  function parseHHMM(s){
+    if(!s || typeof s !== 'string') return null;
+    const m = s.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+    if(!m) return null;
+    return (+m[1])*60 + (+m[2]);
+  }
+
+  function formatMin(min){
+    const sign = min < 0 ? '-' : '';
+    const a = Math.abs(min);
+    const h = Math.floor(a/60);
+    const m = a % 60;
+    return sign + h + ':' + pad2(m);
+  }
+
+  function minToDec(min){
+    return Math.round((min/60)*100)/100;
+  }
+
+  function toast(msg){
+    const d = $('#toast');
+    $('#toastMsg').textContent = msg;
+    if(!d.open) d.showModal();
+  }
+  function closeToast(){
+    const d = $('#toast');
+    if(d.open) d.close();
+  }
+
+  function applyTheme(){
+    const t = data.settings.theme;
+    const root = document.documentElement;
+    if(t === 'system'){
+      root.removeAttribute('data-theme');
+      return;
+    }
+    root.setAttribute('data-theme', t);
+  }
+
+  function cycleTheme(){
+    const t = data.settings.theme;
+    data.settings.theme = (t === 'system') ? 'dark' : (t === 'dark' ? 'light' : 'system');
+    applyTheme();
+    scheduleSave();
+    toast('Theme: ' + data.settings.theme);
+  }
+
+  function getMonthMeta(ym){
+    const [Y, M] = ym.split('-').map(Number);
+    const first = new Date(Y, M-1, 1);
+    const last = new Date(Y, M, 0); // last day
+    const daysInMonth = last.getDate();
+    return { Y, M, first, last, daysInMonth };
+  }
+
+  function dateKey(Y, M, D){
+    return Y + '-' + pad2(M) + '-' + pad2(D);
+  }
+
+  function defaultWorkdayForDate(dateObj){
+    const wd = dateObj.getDay(); // 0..6, So..Sa
+    return (wd >= 1 && wd <= 5); // Mo–Fr
+  }
+
+  function ensureDayDefaults(key){
+    if(!data.days[key]) data.days[key] = {};
+    const o = data.days[key];
+    if(typeof o.workday !== 'boolean'){
+      const d = new Date(key + 'T00:00:00');
+      o.workday = defaultWorkdayForDate(d);
+    }
+    if(o.breakMin == null) o.breakMin = 30;
+    if(o.note == null) o.note = '';
+    if(o.open == null) o.open = false;
+    return o;
+  }
+
+  function computeDayMinutes(entry){
+    const s = parseHHMM(entry.start);
+    const e = parseHHMM(entry.end);
+    const br = Number(entry.breakMin || 0);
+    if(s == null || e == null) return 0;
+
+    let dur = e - s;
+    if(dur < 0) dur += 24*60; // overnight shift
+    dur -= clamp(br, 0, 24*60);
+    return Math.max(0, dur);
+  }
+
+  function getMonthKeys(ym){
+    const { Y, M, daysInMonth } = getMonthMeta(ym);
+    const keys = [];
+    for(let d=1; d<=daysInMonth; d++){
+      keys.push(dateKey(Y, M, d));
+    }
+    return keys;
+  }
+
+  function scheduleSave(){
+    if(saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 250);
+  }
+
+  function saveNow(){
+    saveTimer = null;
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }catch(err){
+      console.error(err);
+      toast('Speichern fehlgeschlagen (Storage voll?)');
+    }
+  }
+
+  function load(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return stateDefaults();
+      const obj = JSON.parse(raw);
+      return migrate(obj);
+    }catch(err){
+      console.warn('load failed', err);
+      return stateDefaults();
+    }
+  }
+
+  function migrate(obj){
+    if(!obj || typeof obj !== 'object') return stateDefaults();
+    if(!obj.version) obj.version = APP_VERSION;
+    if(!obj.settings) obj.settings = { theme: 'system' };
+    if(!obj.month) obj.month = ymToday();
+    if(obj.requiredHours == null) obj.requiredHours = 160;
+    if(obj.carryHours == null) obj.carryHours = 0;
+    if(!obj.days) obj.days = {};
+    return obj;
+  }
+
+  // ---------- Rendering ----------
+  function render(){
+    applyTheme();
+
+    $('#verOut').textContent = APP_VERSION;
+    $('#monthPicker').value = data.month;
+
+    const { Y, M } = getMonthMeta(data.month);
+    $('#monthTitle').textContent = monthNames[M-1] + ' ' + Y;
+
+    $('#requiredHours').value = data.requiredHours;
+    $('#carryHours').value = data.carryHours;
+
+    const keys = getMonthKeys(data.month);
+    const list = $('#dayList');
+    list.innerHTML = '';
+
+    for(const key of keys){
+      const entry = ensureDayDefaults(key);
+      const dateObj = new Date(key + 'T00:00:00');
+      const wd = dateObj.getDay();
+      const min = computeDayMinutes(entry);
+
+      const dayEl = document.createElement('div');
+      dayEl.className = 'day' + (entry.open ? ' open' : '');
+      dayEl.dataset.key = key;
+
+      const head = document.createElement('div');
+      head.className = 'day-head';
+      head.innerHTML = `
+        <div class="day-left">
+          <div class="day-date">
+            <div class="d">${key.slice(8,10)}.${pad2(M)}.${String(Y).slice(2)}</div>
+            <div class="w">${weekdayNames[wd]}</div>
           </div>
-          <div class="note">${escapeHtml(e.note || "")}</div>
+          <div class="badge ${entry.workday ? 'work' : ''}">${entry.workday ? '✓ Arbeitstag' : '– frei'}</div>
         </div>
-        <div>
-          <div class="dur">${msToHhmm(durMs)} h</div>
-          <div class="btns">
-            <button class="mini-btn" title="Bearbeiten">✎</button>
-            <button class="mini-btn" title="Löschen">🗑️</button>
-          </div>
+        <div class="day-right">
+          <div class="day-hours">${formatMin(min)}</div>
+          <div class="chev" aria-hidden="true">${entry.open ? '▾' : '▸'}</div>
         </div>
       `;
-      const [btnEdit, btnDel] = row.querySelectorAll("button");
-      btnEdit.addEventListener("click", ()=> openEntryEdit(e.id));
-      btnDel.addEventListener("click", ()=> openEntryDelete(e.id));
 
-      dom.dayEntries.appendChild(row);
+      const body = document.createElement('div');
+      body.className = 'day-body';
+      body.innerHTML = `
+        <div class="day-grid">
+          <label class="tog span3" title="Arbeitstag an/aus">
+            <input type="checkbox" data-act="workday" ${entry.workday ? 'checked' : ''} />
+            <span>Arbeitstag</span>
+          </label>
+
+          <label class="field">
+            <span>Start</span>
+            <input type="time" data-act="start" value="${entry.start || ''}" />
+          </label>
+
+          <label class="field">
+            <span>Ende</span>
+            <input type="time" data-act="end" value="${entry.end || ''}" />
+          </label>
+
+          <label class="field">
+            <span>Pause (min)</span>
+            <input type="number" min="0" step="5" data-act="breakMin" value="${entry.breakMin ?? 0}" />
+          </label>
+
+          <label class="field span3">
+            <span>Notiz</span>
+            <textarea class="note" data-act="note" placeholder="z.B. Dienstreise, Workshop, Homeoffice…">${escapeHtml(entry.note || '')}</textarea>
+          </label>
+        </div>
+
+        <div class="day-actions">
+          <button class="btn ghost" data-act="clear">Eintrag löschen</button>
+          <button class="btn" data-act="collapse">Zuklappen</button>
+        </div>
+      `;
+
+      head.addEventListener('click', () => {
+        entry.open = !entry.open;
+        scheduleSave();
+        render();
+      });
+
+      body.addEventListener('input', (e) => {
+        const t = e.target;
+        if(!(t instanceof HTMLElement)) return;
+        const act = t.getAttribute('data-act');
+        if(!act) return;
+
+        if(act === 'workday' && t instanceof HTMLInputElement){
+          entry.workday = !!t.checked;
+        }else if(act === 'start' && t instanceof HTMLInputElement){
+          entry.start = t.value || '';
+        }else if(act === 'end' && t instanceof HTMLInputElement){
+          entry.end = t.value || '';
+        }else if(act === 'breakMin' && t instanceof HTMLInputElement){
+          entry.breakMin = (t.value === '' ? 0 : Number(t.value));
+        }else if(act === 'note' && t instanceof HTMLTextAreaElement){
+          entry.note = t.value || '';
+        }
+
+        data.days[key] = entry;
+        scheduleSave();
+        updateSummaryOnly();
+
+        const newMin = computeDayMinutes(entry);
+        head.querySelector('.day-hours').textContent = formatMin(newMin);
+      });
+
+      body.addEventListener('click', (e) => {
+        const t = e.target;
+        if(!(t instanceof HTMLElement)) return;
+        const act = t.getAttribute('data-act');
+        if(!act) return;
+
+        if(act === 'clear'){
+          entry.start = '';
+          entry.end = '';
+          entry.note = '';
+          data.days[key] = entry;
+          scheduleSave();
+          render();
+          toast('Eintrag gelöscht');
+        }
+        if(act === 'collapse'){
+          entry.open = false;
+          data.days[key] = entry;
+          scheduleSave();
+          render();
+        }
+      });
+
+      dayEl.appendChild(head);
+      dayEl.appendChild(body);
+      list.appendChild(dayEl);
     }
+
+    updateSummaryOnly();
   }
 
-  dom.daySumLabel.textContent = `${msToHhmm(sumForDay(d))} h`;
-}
+  function escapeHtml(s){
+    return String(s)
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'","&#039;");
+  }
 
-function renderStats(){
-  const today = startOfDay(new Date());
-  dom.statToday.textContent = msToHhmm(sumForDay(today));
+  function getMonthTotals(){
+    const keys = getMonthKeys(data.month);
+    let worked = 0;
+    let remainingPlanned = 0;
 
-  const ws = weekStart(new Date());
-  dom.statWeek.textContent = msToHhmm(sumRange(ws, addDays(ws,7)));
+    for(const key of keys){
+      const entry = ensureDayDefaults(key);
+      const min = computeDayMinutes(entry);
+      worked += min;
 
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  const nextMonth = new Date(monthStart.getFullYear(), monthStart.getMonth()+1, 1);
-  dom.statMonth.textContent = msToHhmm(sumRange(monthStart, nextMonth));
-
-  const d14 = addDays(today, -13);
-  dom.stat14.textContent = msToHhmm(sumRange(d14, addDays(today,1)));
-}
-
-function addDays(d, n){
-  const x = new Date(d); x.setDate(x.getDate()+n); return x;
-}
-
-// ---------- Summaries ----------
-function sumForDay(day){
-  const d0 = startOfDay(day);
-  const d1 = addDays(d0, 1);
-  return sumRange(d0, d1);
-}
-
-function sumRange(from, to){
-  let ms = 0;
-  for(const e of state.data.entries){
-    const st = new Date(e.startTs);
-    if(st >= from && st < to && matchesFilters(e)){
-      ms += Math.max(0, e.endTs - e.startTs - (e.breakMin*60000));
+      const hasEntry = !!(entry.start && entry.end);
+      if(entry.workday && !hasEntry) remainingPlanned++;
     }
-  }
-  return ms;
-}
 
-function countEntriesForDay(day){
-  const d0 = startOfDay(day);
-  const d1 = addDays(d0, 1);
-  return state.data.entries.filter(e=>{
-    const st = new Date(e.startTs);
-    return st>=d0 && st<d1 && matchesFilters(e);
-  }).length;
-}
+    const target = Math.round(Number(data.requiredHours || 0) * 60);
+    const carry = Math.round(Number(data.carryHours || 0) * 60);
+    const diff = worked - target;
+    const rest = Math.max(0, target - worked);
+    const perDay = remainingPlanned > 0 ? Math.round(rest / remainingPlanned) : null;
+    const saldo = (worked + carry) - target;
 
-function countProjectHours(projectId){
-  const ms = state.data.entries
-    .filter(e=>e.projectId===projectId)
-    .reduce((acc,e)=> acc + Math.max(0, e.endTs - e.startTs - (e.breakMin*60000)), 0);
-  return msToHhmm(ms) + " h gesamt";
-}
-
-// ---------- Timer ----------
-let timerTick = null;
-
-function syncTimerUI(){
-  const t = state.timer;
-  dom.timerNote.value = t.note || "";
-
-  dom.btnStart.disabled = t.running && !t.paused;
-  dom.btnPause.disabled = !t.running;
-  dom.btnStop.disabled = !t.running;
-
-  if(!t.running){
-    dom.timerDisplay.textContent = "00:00:00";
-    if(timerTick){ clearInterval(timerTick); timerTick=null; }
-    return;
-  }
-  if(!timerTick){
-    timerTick = setInterval(()=> {
-      dom.timerDisplay.textContent = msToHhmm(timerElapsedMs());
-    }, 250);
-  }
-  dom.timerDisplay.textContent = msToHhmm(timerElapsedMs());
-  dom.btnPause.textContent = t.paused ? "Weiter" : "Pause";
-}
-
-function timerElapsedMs(){
-  const t = state.timer;
-  if(!t.running || !t.startTs) return 0;
-  const now = Date.now();
-  const base = (t.paused ? t.pauseTs : now) - t.startTs;
-  return base - t.pausedMs;
-}
-
-function timerStart(){
-  const projId = state.activeProjectId;
-  if(!projId){
-    alert("Bitte zuerst ein Projekt auswählen.");
-    return;
-  }
-  const t = state.timer;
-  t.running = true;
-  t.paused = false;
-  t.startTs = Date.now();
-  t.pauseTs = null;
-  t.pausedMs = 0;
-  t.projectId = projId;
-  t.note = dom.timerNote.value.trim();
-  syncTimerUI();
-}
-
-function timerTogglePause(){
-  const t = state.timer;
-  if(!t.running) return;
-  if(!t.paused){
-    t.paused = true;
-    t.pauseTs = Date.now();
-  }else{
-    t.paused = false;
-    const now = Date.now();
-    t.pausedMs += (now - t.pauseTs);
-    t.pauseTs = null;
-  }
-  syncTimerUI();
-}
-
-function timerStop(){
-  const t = state.timer;
-  if(!t.running) return;
-
-  // finalize pausedMs if paused
-  if(t.paused && t.pauseTs){
-    t.pausedMs += (Date.now() - t.pauseTs);
+    return { worked, target, diff, rest, perDay, remainingPlanned, carry, saldo };
   }
 
-  const endTs = Date.now();
-  const durMs = timerElapsedMs();
-  if(durMs < 60000){
-    // under 1 min: confirm
-    openModal(
-      "Eintrag sehr kurz",
-      `Der Timer lief nur ${msToHhmmss(durMs)}. Trotzdem speichern?`,
-      [
-        { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-        { text:"Speichern", cls:"btn", onClick: ()=>{ closeModal(); commitTimer(endTs); } }
-      ]
-    );
-  }else{
-    commitTimer(endTs);
-  }
-}
+  function updateSummaryOnly(){
+    const t = getMonthTotals();
 
-function commitTimer(endTs){
-  const t = state.timer;
-  const entry = {
-    id: uid(),
-    projectId: t.projectId,
-    startTs: t.startTs,
-    endTs,
-    breakMin: Math.round(t.pausedMs/60000),
-    note: dom.timerNote.value.trim()
-  };
-  state.data.entries.push(entry);
+    $('#workedOut').textContent = formatMin(t.worked);
+    $('#targetOut').textContent = formatMin(t.target);
+    $('#diffOut').textContent = formatMin(t.diff);
+    $('#restOut').textContent = formatMin(t.rest);
+    $('#saldoOut').textContent = formatMin(t.saldo);
 
-  // reset timer
-  state.timer = {
-    running:false, paused:false, startTs:null, pauseTs:null, pausedMs:0, projectId:null, note:""
-  };
-  dom.timerNote.value = "";
-  syncTimerUI();
-  renderAll();
-}
+    $('#perDayOut').textContent = (t.perDay == null)
+      ? '–'
+      : (formatMin(t.perDay) + ` (${t.remainingPlanned} Tage)`);
 
-// ---------- Manual entry ----------
-function manualDefault(){
-  dom.mDate.valueAsDate = new Date(state.selectedDate);
-  dom.mStart.value = "09:00";
-  dom.mEnd.value = "17:00";
-  dom.mBreak.value = 0;
-  dom.mNote.value = "";
-}
-
-function submitManual(ev){
-  ev.preventDefault();
-  const projId = state.activeProjectId;
-  if(!projId){ alert("Bitte Projekt wählen."); return; }
-
-  const d = dom.mDate.value;
-  const s = dom.mStart.value;
-  const e = dom.mEnd.value;
-  if(!d || !s || !e){ alert("Datum/Start/Ende ausfüllen."); return; }
-
-  const startTs = new Date(`${d}T${s}:00`).getTime();
-  const endTs = new Date(`${d}T${e}:00`).getTime();
-  if(endTs <= startTs){
-    alert("Ende muss nach Start liegen.");
-    return;
+    const diffEl = $('#diffOut');
+    diffEl.style.color = '';
+    if(t.diff > 0) diffEl.style.color = 'rgba(var(--accent-rgb), .95)';
   }
 
-  const breakMin = clamp(parseInt(dom.mBreak.value||"0",10), 0, 600);
-  state.data.entries.push({
-    id: uid(),
-    projectId: projId,
-    startTs,
-    endTs,
-    breakMin,
-    note: dom.mNote.value.trim()
-  });
-
-  state.selectedDate = startOfDay(new Date(startTs));
-  renderAll();
-}
-
-// ---------- Entry edit/delete ----------
-function openEntryDelete(entryId){
-  openModal(
-    "Eintrag löschen?",
-    "Dieser Zeiteintrag wird dauerhaft entfernt (lokal).",
-    [
-      { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-      { text:"Löschen", cls:"btn danger", onClick: ()=>{
-        state.data.entries = state.data.entries.filter(x=>x.id!==entryId);
-        closeModal(); renderAll();
-      }}
-    ]
-  );
-}
-
-function openEntryEdit(entryId){
-  const e = state.data.entries.find(x=>x.id===entryId);
-  if(!e) return;
-
-  const proj = projectById(e.projectId)?.name ?? "—";
-  const d = new Date(e.startTs);
-  const dateStr = d.toISOString().slice(0,10);
-  const startStr = new Date(e.startTs).toTimeString().slice(0,5);
-  const endStr = new Date(e.endTs).toTimeString().slice(0,5);
-
-  const body = document.createElement("div");
-  body.innerHTML = `
-    <div style="margin-bottom:10px; color: rgba(255,255,255,.7); font-size:12px;">
-      Projekt: <b>${escapeHtml(proj)}</b>
-    </div>
-    <div class="form-row">
-      <label>Datum</label>
-      <input id="eeDate" type="date" value="${dateStr}" />
-    </div>
-    <div class="form-row two" style="margin-top:10px;">
-      <div>
-        <label>Start</label>
-        <input id="eeStart" type="time" value="${startStr}" />
-      </div>
-      <div>
-        <label>Ende</label>
-        <input id="eeEnd" type="time" value="${endStr}" />
-      </div>
-    </div>
-    <div class="form-row" style="margin-top:10px;">
-      <label>Pause (Min.)</label>
-      <input id="eeBreak" type="number" min="0" step="5" value="${e.breakMin}" />
-    </div>
-    <div class="form-row" style="margin-top:10px;">
-      <label>Notiz</label>
-      <input id="eeNote" type="text" value="${escapeAttr(e.note||"")}" />
-    </div>
-  `;
-
-  openModal("Eintrag bearbeiten", body, [
-    { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-    { text:"Speichern", cls:"btn", onClick: ()=>{
-      const nd = elInModal("eeDate").value;
-      const ns = elInModal("eeStart").value;
-      const ne = elInModal("eeEnd").value;
-      const nb = clamp(parseInt(elInModal("eeBreak").value||"0",10), 0, 600);
-      const nn = elInModal("eeNote").value.trim();
-
-      if(!nd || !ns || !ne){ alert("Datum/Start/Ende ausfüllen."); return; }
-      const nStart = new Date(`${nd}T${ns}:00`).getTime();
-      const nEnd = new Date(`${nd}T${ne}:00`).getTime();
-      if(nEnd <= nStart){ alert("Ende muss nach Start liegen."); return; }
-
-      e.startTs = nStart;
-      e.endTs = nEnd;
-      e.breakMin = nb;
-      e.note = nn;
-
-      state.selectedDate = startOfDay(new Date(nStart));
-      closeModal();
-      renderAll();
-    }}
-  ]);
-}
-
-function elInModal(id){ return document.getElementById(id); }
-
-// ---------- Project modals ----------
-function openProjectRename(projectId){
-  const p = projectById(projectId);
-  if(!p) return;
-
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <div class="form-row">
-      <label>Name</label>
-      <input id="prName" type="text" value="${escapeAttr(p.name)}" />
-    </div>
-  `;
-
-  openModal("Projekt umbenennen", wrap, [
-    { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-    { text:"Speichern", cls:"btn", onClick: ()=>{
-      const name = elInModal("prName").value.trim();
-      if(!name){ alert("Name darf nicht leer sein."); return; }
-      p.name = name;
-      closeModal(); renderAll();
-    }}
-  ]);
-}
-
-function openProjectDelete(projectId){
-  const p = projectById(projectId);
-  if(!p) return;
-
-  const hasEntries = state.data.entries.some(e=>e.projectId===projectId);
-  const msg = hasEntries
-    ? "Dieses Projekt hat Einträge. Beim Löschen werden diese Einträge ebenfalls gelöscht."
-    : "Projekt wirklich löschen?";
-
-  openModal("Projekt löschen?", msg, [
-    { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-    { text:"Löschen", cls:"btn danger", onClick: ()=>{
-      state.data.projects = state.data.projects.filter(x=>x.id!==projectId);
-      state.data.entries = state.data.entries.filter(e=>e.projectId!==projectId);
-      if(state.activeProjectId===projectId){
-        state.activeProjectId = state.data.projects[0]?.id ?? null;
-      }
-      closeModal(); renderAll();
-    }}
-  ]);
-}
-
-function openProjectAdd(){
-  const wrap = document.createElement("div");
-  wrap.innerHTML = `
-    <div class="form-row">
-      <label>Projektname</label>
-      <input id="paName" type="text" placeholder="z.B. AVöD Planung, Workshop, Doku…" />
-    </div>
-  `;
-  openModal("Neues Projekt", wrap, [
-    { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-    { text:"Anlegen", cls:"btn", onClick: ()=>{
-      const name = elInModal("paName").value.trim();
-      if(!name){ alert("Bitte Name eingeben."); return; }
-      const p = { id: uid(), name, color:"accent" };
-      state.data.projects.push(p);
-      state.activeProjectId = p.id;
-      closeModal(); renderAll();
-    }}
-  ]);
-}
-
-// ---------- Navigation (prev/next/today) ----------
-function stepCursor(dir){
-  const m = state.viewMode;
-  const c = new Date(state.cursorDate);
-
-  if(m==="month"){
-    c.setMonth(c.getMonth()+dir);
-  }else if(m==="week"){
-    c.setDate(c.getDate()+7*dir);
-  }else{
-    c.setDate(c.getDate()+dir);
-    state.selectedDate = startOfDay(c);
+  // ---------- Actions ----------
+  function applyWeekdays(){
+    const keys = getMonthKeys(data.month);
+    for(const key of keys){
+      const d = new Date(key + 'T00:00:00');
+      const entry = ensureDayDefaults(key);
+      entry.workday = defaultWorkdayForDate(d);
+      data.days[key] = entry;
+    }
+    scheduleSave();
+    render();
+    toast('Mo–Fr gesetzt');
   }
-  state.cursorDate = c;
-  renderAll();
-}
 
-// ---------- Export/Import/Reset ----------
-function exportJson(){
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    app: "BWK-Zeiterfassung",
-    version: "0.1",
-    data: state.data
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `bwk-zeiterfassung-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
+  function clearMonth(){
+    const keys = new Set(getMonthKeys(data.month));
+    for(const k of Object.keys(data.days)){
+      if(keys.has(k)) delete data.days[k];
+    }
+    scheduleSave();
+    render();
+    toast('Monat geleert');
+  }
 
-function importJsonFile(file){
-  const reader = new FileReader();
-  reader.onload = ()=>{
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+  }
+
+  function exportJson(){
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    downloadBlob(blob, 'bwk-zeiterfassung_' + data.month + '.json');
+  }
+
+  function exportCsv(){
+    const keys = getMonthKeys(data.month);
+    const rows = [
+      ['date','weekday','workday','start','end','breakMin','minutes','hoursDec','note'].join(',')
+    ];
+
+    for(const key of keys){
+      const e = ensureDayDefaults(key);
+      const d = new Date(key + 'T00:00:00');
+      const wd = weekdayNames[d.getDay()];
+      const min = computeDayMinutes(e);
+      const note = (e.note || '').replaceAll('"','""');
+      rows.push([
+        key,
+        wd,
+        e.workday ? '1' : '0',
+        e.start || '',
+        e.end || '',
+        String(e.breakMin ?? 0),
+        String(min),
+        String(minToDec(min)),
+        '"' + note + '"'
+      ].join(','));
+    }
+
+    const blob = new Blob([rows.join('\n')], {type: 'text/csv'});
+    downloadBlob(blob, 'bwk-zeiterfassung_' + data.month + '.csv');
+  }
+
+  async function importJsonFile(file){
+    const text = await file.text();
+    let obj = null;
     try{
-      const obj = JSON.parse(reader.result);
-      const data = obj.data ?? obj;
-      if(!data.projects || !data.entries) throw new Error("Format ungültig");
-      state.data = data;
-      state.activeProjectId = state.data.projects[0]?.id ?? null;
-      closeModal();
-      renderAll();
-    }catch(e){
-      alert("Import fehlgeschlagen: " + e.message);
+      obj = JSON.parse(text);
+    }catch{
+      toast('Ungültiges JSON');
+      return;
     }
-  };
-  reader.readAsText(file);
-}
-
-function resetAll(){
-  openModal(
-    "Alles zurücksetzen?",
-    "Das löscht alle lokalen Projekte und Einträge auf diesem Gerät (LocalStorage). Export vorher empfohlen.",
-    [
-      { text:"Abbrechen", cls:"btn ghost", onClick: closeModal },
-      { text:"Zurücksetzen", cls:"btn danger", onClick: ()=>{
-        localStorage.removeItem(STORAGE_KEY);
-        location.reload();
-      }}
-    ]
-  );
-}
-
-// ---------- Modal ----------
-function openModal(title, body, actions){
-  dom.modalTitle.textContent = title;
-  dom.modalBody.innerHTML = "";
-  if(typeof body === "string"){
-    const p = document.createElement("div");
-    p.textContent = body;
-    dom.modalBody.appendChild(p);
-  }else{
-    dom.modalBody.appendChild(body);
+    data = migrate(obj);
+    applyTheme();
+    saveNow();
+    render();
+    toast('Import ok');
   }
 
-  dom.modalFooter.innerHTML = "";
-  for(const a of actions){
-    const b = document.createElement("button");
-    b.className = a.cls || "btn";
-    b.textContent = a.text;
-    b.addEventListener("click", a.onClick);
-    dom.modalFooter.appendChild(b);
+  // ---------- Wire up ----------
+  function init(){
+    data = load();
+
+    $('#themeBtn').addEventListener('click', cycleTheme);
+    $('#toastClose').addEventListener('click', closeToast);
+    $('#toast').addEventListener('click', (e) => { if(e.target === $('#toast')) closeToast(); });
+
+    $('#monthPicker').addEventListener('change', (e) => {
+      data.month = e.target.value || ymToday();
+      scheduleSave();
+      render();
+    });
+
+    $('#requiredHours').addEventListener('input', (e) => {
+      data.requiredHours = Number(e.target.value || 0);
+      scheduleSave();
+      updateSummaryOnly();
+    });
+
+    $('#carryHours').addEventListener('input', (e) => {
+      data.carryHours = Number(e.target.value || 0);
+      scheduleSave();
+      updateSummaryOnly();
+    });
+
+    $('#applyWeekdaysBtn').addEventListener('click', applyWeekdays);
+    $('#clearMonthBtn').addEventListener('click', clearMonth);
+    $('#exportJsonBtn').addEventListener('click', exportJson);
+    $('#exportCsvBtn').addEventListener('click', exportCsv);
+
+    $('#importFile').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if(!f) return;
+      await importJsonFile(f);
+      e.target.value = '';
+    });
+
+    render();
   }
 
-  dom.modalBackdrop.classList.remove("hidden");
-}
-function closeModal(){
-  dom.modalBackdrop.classList.add("hidden");
-}
-
-// ---------- Escaping ----------
-function escapeHtml(str){
-  return (str ?? "").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
-}
-function escapeAttr(str){ return escapeHtml(str).replace(/"/g, "&quot;"); }
-
-// ---------- Events ----------
-function bindEvents(){
-  dom.btnToggleSidebar.addEventListener("click", ()=>{
-    dom.sidebar.classList.toggle("open");
-  });
-
-  dom.btnAddProject.addEventListener("click", openProjectAdd);
-  dom.btnAddProject2.addEventListener("click", openProjectAdd);
-
-  dom.projectSelect.addEventListener("change", ()=>{
-    state.activeProjectId = dom.projectSelect.value;
-    renderAll();
-  });
-
-  dom.viewMode.addEventListener("change", ()=>{
-    state.viewMode = dom.viewMode.value;
-    renderAll();
-  });
-
-  dom.btnPrev.addEventListener("click", ()=> stepCursor(-1));
-  dom.btnNext.addEventListener("click", ()=> stepCursor(1));
-  dom.btnToday.addEventListener("click", ()=>{
-    state.cursorDate = new Date();
-    state.selectedDate = startOfDay(new Date());
-    renderAll();
-  });
-
-  dom.searchInput.addEventListener("input", ()=>{
-    state.search = dom.searchInput.value;
-    renderAll();
-  });
-
-  dom.timerNote.addEventListener("input", ()=>{
-    state.timer.note = dom.timerNote.value;
-  });
-
-  dom.btnStart.addEventListener("click", timerStart);
-  dom.btnPause.addEventListener("click", timerTogglePause);
-  dom.btnStop.addEventListener("click", timerStop);
-
-  dom.btnAddManual.addEventListener("click", ()=>{
-    manualDefault();
-    dom.mDate.focus();
-  });
-
-  dom.manualForm.addEventListener("submit", submitManual);
-
-  dom.btnExport.addEventListener("click", exportJson);
-  dom.fileImport.addEventListener("change", ()=>{
-    const f = dom.fileImport.files?.[0];
-    if(!f) return;
-    openModal("Import", "Datei wird importiert…", [{text:"OK", cls:"btn", onClick: closeModal}]);
-    importJsonFile(f);
-    dom.fileImport.value = "";
-  });
-
-  dom.btnReset.addEventListener("click", resetAll);
-
-  dom.btnCloseModal.addEventListener("click", closeModal);
-  dom.modalBackdrop.addEventListener("click", (ev)=>{
-    if(ev.target === dom.modalBackdrop) closeModal();
-  });
-
-  // keyboard: space start/pause, shift+space stop
-  window.addEventListener("keydown", (ev)=>{
-    if(ev.target && ["INPUT","TEXTAREA","SELECT"].includes(ev.target.tagName)) return;
-    if(ev.code === "Space"){
-      ev.preventDefault();
-      if(ev.shiftKey){
-        if(state.timer.running) timerStop();
-      }else{
-        if(!state.timer.running) timerStart();
-        else timerTogglePause();
-      }
-    }
-  });
-}
-
-// ---------- Init ----------
-function init(){
-  load();
-  bindEvents();
-  dom.viewMode.value = state.viewMode;
-  dom.searchInput.value = state.search || "";
-  manualDefault();
-  renderAll();
-}
-init();
+  init();
+})();
