@@ -19,12 +19,13 @@
       </div>
 
       <div class="top-actions">
+        <button class="btn ghost small" id="expandAllBtn" title="Alle Tage aufklappen">Alle aufklappen</button>
+        <button class="btn ghost small" id="collapseAllBtn" title="Alle Tage zuklappen">Alle zuklappen</button>
+
         <label class="field compact">
           <span>Monat</span>
           <input id="monthPicker" type="month" />
         </label>
-        <button class="btn ghost small" id="expandAllBtn" title="Alle Tage aufklappen">Alle aufklappen</button>
-        <button class="btn ghost small" id="collapseAllBtn" title="Alle Tage zuklappen">Alle zuklappen</button>
 
         <button class="btn ghost" id="themeBtn" title="Hell/Dunkel wählen" aria-label="Hell/Dunkel wählen">
           <span class="ico" aria-hidden="true">🌓</span>
@@ -92,7 +93,6 @@
               <input id="importFile" type="file" accept=".json,application/json" />
               <span class="btn ghost">JSON import</span>
             </label>
-            <button class="btn ghost danger" id="clearMonthBtn" title="Aktuellen Monat leeren">Monat leeren</button>
           </div>
         </section>
       </aside>
